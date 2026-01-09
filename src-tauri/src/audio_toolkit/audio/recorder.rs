@@ -164,31 +164,60 @@ impl AudioRecorder {
         T: Sample + SizedSample + Send + 'static,
         f32: cpal::FromSample<T>,
     {
-        let mut output_buffer = Vec::new();
+        // Pre-allocate buffer with reasonable capacity to avoid reallocation during callbacks
+        // Typical audio callback buffer size is 480-2048 samples per channel
+        let mut output_buffer = Vec::with_capacity(4096);
 
         let stream_cb = move |data: &[T], _: &cpal::InputCallbackInfo| {
+            // Safety check: ensure data length is valid
+            if data.is_empty() {
+                log::warn!("Received empty audio data buffer");
+                return;
+            }
+
             output_buffer.clear();
 
             if channels == 1 {
                 // Direct conversion without intermediate Vec
+                // Pre-reserve exact capacity needed to prevent buffer overrun
+                output_buffer.reserve(data.len());
                 output_buffer.extend(data.iter().map(|&sample| sample.to_sample::<f32>()));
             } else {
                 // Convert to mono directly
                 let frame_count = data.len() / channels;
+
+                // Safety check: ensure we have valid frame data
+                if data.len() % channels != 0 {
+                    log::warn!(
+                        "Audio data length {} is not evenly divisible by channel count {}. Truncating to {} complete frames.",
+                        data.len(),
+                        channels,
+                        frame_count
+                    );
+                }
+
+                // Reserve exact capacity needed
                 output_buffer.reserve(frame_count);
 
-                for frame in data.chunks_exact(channels) {
-                    let mono_sample = frame
-                        .iter()
-                        .map(|&sample| sample.to_sample::<f32>())
-                        .sum::<f32>()
-                        / channels as f32;
-                    output_buffer.push(mono_sample);
+                // Use chunks() instead of chunks_exact() to handle remainder gracefully
+                for frame in data.chunks(channels).take(frame_count) {
+                    // Only process complete frames
+                    if frame.len() == channels {
+                        let mono_sample = frame
+                            .iter()
+                            .map(|&sample| sample.to_sample::<f32>())
+                            .sum::<f32>()
+                            / channels as f32;
+                        output_buffer.push(mono_sample);
+                    }
                 }
             }
 
-            if sample_tx.send(output_buffer.clone()).is_err() {
-                log::error!("Failed to send samples");
+            // Only send if we have data
+            if !output_buffer.is_empty() {
+                if sample_tx.send(output_buffer.clone()).is_err() {
+                    log::error!("Failed to send samples");
+                }
             }
         };
 

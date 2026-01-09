@@ -35,6 +35,11 @@ impl FrameResampler {
     }
 
     pub fn push(&mut self, mut src: &[f32], mut emit: impl FnMut(&[f32])) {
+        // Safety check: reject invalid input
+        if src.is_empty() {
+            return;
+        }
+
         if self.resampler.is_none() {
             self.emit_frames(src, &mut emit);
             return;
@@ -42,7 +47,19 @@ impl FrameResampler {
 
         while !src.is_empty() {
             let space = self.chunk_in - self.in_buf.len();
+            // Bounds check to prevent overflow
+            if space == 0 {
+                log::error!("Resampler input buffer full unexpectedly");
+                break;
+            }
+
             let take = space.min(src.len());
+            // Additional safety check
+            if take > src.len() {
+                log::error!("Invalid buffer slice calculation in resampler");
+                break;
+            }
+
             self.in_buf.extend_from_slice(&src[..take]);
             src = &src[take..];
 
@@ -84,9 +101,26 @@ impl FrameResampler {
     }
 
     fn emit_frames(&mut self, mut data: &[f32], emit: &mut impl FnMut(&[f32])) {
+        // Safety check: reject invalid input
+        if data.is_empty() {
+            return;
+        }
+
         while !data.is_empty() {
             let space = self.frame_samples - self.pending.len();
+            // Bounds check to prevent overflow
+            if space == 0 {
+                log::error!("Frame pending buffer full unexpectedly");
+                break;
+            }
+
             let take = space.min(data.len());
+            // Additional safety check
+            if take > data.len() {
+                log::error!("Invalid buffer slice calculation in emit_frames");
+                break;
+            }
+
             self.pending.extend_from_slice(&data[..take]);
             data = &data[take..];
 
