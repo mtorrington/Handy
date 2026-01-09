@@ -159,3 +159,4 @@ npm run tauri dev
 - Windows Error Code 0xc0000409: https://learn.microsoft.com/en-us/windows/win32/debug/system-error-codes
 - Rust Vec documentation: https://doc.rust-lang.org/std/vec/struct.Vec.html
 - CPAL audio library: https://github.com/RustAudio/cpal
+
